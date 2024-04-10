@@ -1,0 +1,41 @@
+name: Add Release Info to Pyxis
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+      commit:
+        required: true
+        type: string
+      host:
+        required: true
+        type: string
+    secrets:
+      certificate:
+        required: true
+      certificatePassword:
+        required: true
+
+jobs:
+  call-pyxis-endpoint:
+    name: Add Release Info
+    runs-on: ubuntu-latest
+    steps:
+      - name: Save Certificate
+        # Note: This was the only way to write this file to disk (including the file type)
+        # that curl in this GHA would recognize. Do not try to optimize and inline the
+        # secret/env, or switch to another file type.
+        env:
+          CERTIFICATE: ${{ secrets.certificate }}
+        run: |
+          echo -n $CERTIFICATE | base64 -di  > certificate.p12
+
+      - name: Call Pyxis API
+        run: |
+          curl --cert-type P12 --cert '${{ github.workspace }}/certificate.p12:${{ secrets.certificatePassword }}' \
+          -H 'Content-Type: application/json' \
+          -d '{"commit":"${{ inputs.commit }}","enabled_for_testing":false,"name":"github.com/redhat-openshift-ecosystem/openshift-preflight","version":"${{ inputs.tag }}"}' \
+          -X POST \
+          https://${{ inputs.host }}/v1/tools
