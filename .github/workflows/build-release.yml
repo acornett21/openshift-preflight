@@ -13,15 +13,18 @@ env:
 jobs:
   build-release:
     name: Build and push tag images
-    strategy: 
+    strategy:
       matrix:
         architecture: [amd64,ppc64le,arm64,s390x]
         platform: [linux]
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - name: Set Env Tags
+    - name: Set Release Tag
       run: echo RELEASE_TAG=$(echo $GITHUB_REF | cut -d '/' -f 3) >> $GITHUB_ENV
+
+    - name: Set COMMIT_SHA/Version
+      run: echo COMMIT_SHA=$(git rev-parse HEAD) >> $GITHUB_ENV
 
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v3
@@ -55,6 +58,8 @@ jobs:
     outputs:
       imageName: ${{ env.IMAGE_NAME }}
       imageVersion: ${{ env.RELEASE_TAG }}
+      commitSHA: ${{ env.COMMIT_SHA }}
+      pyxisHost: ${{ vars.PYXIS_HOST }}
 
   build-multiarch:
     permissions:
@@ -86,6 +91,19 @@ jobs:
       user: ${{ secrets.REGISTRY_USER }}
       password: ${{ secrets.REGISTRY_PASSWORD }}
       token: ${{ secrets.GITHUB_TOKEN }}
+
+  add-release-info-to-pyxis:
+    needs: [build-release, extract-assets]
+    uses: ./.github/workflows/add-release-info-to-pyxis.yml
+    if: "!github.event.release.prerelease"
+    with:
+      tag: ${{ needs.build-release.outputs.imageVersion }}
+      commit: ${{ needs.build-release.outputs.commitSHA }}
+      host: ${{ needs.build-release.outputs.pyxisHost }}
+    secrets:
+      certificate: ${{ secrets.PREFLIGHT_RELEASE_CERTIFICATE }}
+      key: ${{ secrets.PREFLIGHT_RELEASE_KEY }}
+      certificatePassword: ${{ secrets.PREFLIGHT_RELEASE_PASSWORD }}
 
   copy-to-rhisv:
     needs: [build-release, build-multiarch]
