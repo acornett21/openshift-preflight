@@ -1,0 +1,39 @@
+name: Add Release Info to Pyxis
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+      commit:
+        required: true
+        type: string
+      host:
+        required: true
+        type: string
+#      enabled:
+#        required: true
+#        type: boolean
+    secrets:
+      certificate:
+        required: true
+      certificatePassword:
+        required: true
+
+jobs:
+  call-pyxis-endpoint:
+    name: Add Release Info
+    runs-on: ubuntu-latest
+    steps:
+      - name: Save Certificate
+        run: |
+          printf ${{ secrets.certificate }} >> certificate.pem
+
+      - name: Call Pyxis API
+        run: |
+          curl --cert 'certificate.pem:${{ secrets.certificatePassword }}' \
+          -H 'Content-Type: application/json' \
+          -d '{"commit":"${{ inputs.commit }}","enabled_for_testing":false,"name":"github.com/redhat-openshift-ecosystem/openshift-preflight","version":"${{ inputs.tag }}"}' \
+          -X POST \
+          https://${{ inputs.host }}/v1/tools
