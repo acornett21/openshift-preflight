@@ -94,6 +94,7 @@ func (c *operatorCheck) resolve(ctx context.Context) error {
 		Channel:                 c.operatorChannel,
 		Kubeconfig:              c.kubeconfig,
 		CSVTimeout:              c.csvTimeout,
+		SubscriptionTimeout:     c.subscriptionTimeout,
 	})
 	if err != nil {
 		return fmt.Errorf("%w: %s", preflighterr.ErrCannotInitializeChecks, err)
@@ -174,6 +175,14 @@ func WithCSVTimeout(csvTimeout time.Duration) Option {
 	}
 }
 
+// WithSubscriptionTimeout overrides the default subscriptionTimeout, for subscriptions that
+// additional time to install.
+func WithSubscriptionTimeout(subscriptionTimeout time.Duration) Option {
+	return func(oc *operatorCheck) {
+		oc.subscriptionTimeout = subscriptionTimeout
+	}
+}
+
 type operatorCheck struct {
 	// required
 	image      string
@@ -191,4 +200,5 @@ type operatorCheck struct {
 	resolved                bool
 	policy                  policy.Policy
 	csvTimeout              time.Duration
+	subscriptionTimeout     time.Duration
 }
