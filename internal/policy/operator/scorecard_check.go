@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"strings"
 
 	"github.com/redhat-openshift-ecosystem/openshift-preflight/internal/operatorsdk"
@@ -51,6 +52,13 @@ func (p *scorecardCheck) getDataToValidate(ctx context.Context, bundleImage stri
 		Verbose:        true,
 		WaitTime:       fmt.Sprintf("%ss", p.waitTime),
 	}
+
+	// checking to make sure operator-sdk is in the $PATH
+	_, err := exec.LookPath("operator-sdk")
+	if err != nil {
+		return nil, fmt.Errorf("%v", err)
+	}
+
 	result, err := p.OperatorSdk.Scorecard(ctx, bundleImage, opts)
 	if err != nil {
 		return result, fmt.Errorf("%v", err)
