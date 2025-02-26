@@ -343,6 +343,10 @@ func generateContainerCheckOptions(cfg *runtime.Config) []container.Option {
 		o = append(o, container.WithInsecureConnection())
 	}
 
+	if cfg.Konflux {
+		o = append(o, container.WithKonflux())
+	}
+
 	return o
 }
 
