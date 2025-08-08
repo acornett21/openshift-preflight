@@ -2,7 +2,6 @@ package rpm
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,21 +11,29 @@ import (
 	_ "github.com/glebarez/go-sqlite"
 )
 
-// GetPackageList returns the list of packages in the rpm database from either
-// /var/lib/rpm/rpmdb.sqlite, or /var/lib/rpm/Packages if the former does not exist.
+// GetPackageList returns the list of packages in the rpm database from
+// /var/lib/rpm/rpmdb.sqlite, /var/lib/rpm/Packages or /usr/lib/sysimage/rpm/rpmdb.sqlite.
 // If neither exists, this returns an error of type os.ErrNotExists
 func GetPackageList(ctx context.Context, basePath string) ([]*rpmdb.PackageInfo, error) {
-	rpmdirPath := filepath.Join(basePath, "var", "lib", "rpm")
-	rpmdbPath := filepath.Join(rpmdirPath, "rpmdb.sqlite")
+	rpmdbPaths := []string{
+		filepath.Join(basePath, "var", "lib", "rpm", "rpmdb.sqlite"),
+		filepath.Join(basePath, "var", "lib", "rpm", "Packages"),
+		filepath.Join(basePath, "usr", "lib", "sysimage", "rpm", "rpmdb.sqlite"),
+	}
 
-	if _, err := os.Stat(rpmdbPath); errors.Is(err, os.ErrNotExist) {
-		// rpmdb.sqlite doesn't exist. Fall back to Packages
-		rpmdbPath = filepath.Join(rpmdirPath, "Packages")
-
-		// if the fall back path does not exist - this probably isn't a RHEL or UBI based image
-		if _, err := os.Stat(rpmdbPath); errors.Is(err, os.ErrNotExist) {
-			return nil, err
+	var rpmdbPath string
+	var lastErr error
+	for _, path := range rpmdbPaths {
+		if _, err := os.Stat(path); err == nil {
+			rpmdbPath = path
+			break
+		} else {
+			lastErr = err
 		}
+	}
+
+	if rpmdbPath == "" {
+		return nil, fmt.Errorf("could not find rpm db/packages: %v", lastErr)
 	}
 
 	db, err := rpmdb.Open(rpmdbPath)
