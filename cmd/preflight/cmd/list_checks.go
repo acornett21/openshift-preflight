@@ -32,6 +32,7 @@ func printChecks(w io.Writer) {
 	fmt.Fprintln(w, "These are the available checks for each policy:")
 	fmt.Fprintln(w, formattedPolicyBlock("Operator", engine.OperatorPolicy(context.TODO()), "invoked on operator bundles"))
 	fmt.Fprintln(w, formattedPolicyBlock("Container", engine.ContainerPolicy(context.TODO()), "invoked on container images"))
+	fmt.Fprintln(w, formattedPolicyBlock("MCP", engine.MCPPolicy(context.TODO()), "invoked on mcp images"))
 	fmt.Fprintln(w, formattedPolicyBlock("Container Root Exception", engine.RootExceptionContainerPolicy(context.TODO()),
 		"automatically applied for container images if preflight determines a root exception flag has been added to your Red Hat Connect project"))
 	fmt.Fprintln(w, formattedPolicyBlock("Container Scratch (NonRoot) Exception", engine.ScratchNonRootContainerPolicy(context.TODO()),

@@ -296,27 +296,27 @@ var _ = Describe("CheckInitialization", func() {
 var _ = Describe("Check Initialization", func() {
 	When("initializing container checks", func() {
 		It("should properly return checks for default container policy", func() {
-			_, err := InitializeContainerChecks(context.TODO(), policy.PolicyContainer, ContainerCheckConfig{})
+			_, err := InitializeContainerChecks(context.TODO(), policy.PolicyContainer, CommonCheckConfig{})
 			Expect(err).ToNot(HaveOccurred())
 		})
 		It("should properly return checks for the scratch policy", func() {
-			_, err := InitializeContainerChecks(context.TODO(), policy.PolicyScratchNonRoot, ContainerCheckConfig{})
+			_, err := InitializeContainerChecks(context.TODO(), policy.PolicyScratchNonRoot, CommonCheckConfig{})
 			Expect(err).ToNot(HaveOccurred())
 		})
 		It("should properly return checks for the scratch and root policy", func() {
-			_, err := InitializeContainerChecks(context.TODO(), policy.PolicyScratchRoot, ContainerCheckConfig{})
+			_, err := InitializeContainerChecks(context.TODO(), policy.PolicyScratchRoot, CommonCheckConfig{})
 			Expect(err).ToNot(HaveOccurred())
 		})
 		It("should properly return checks for the root policy", func() {
-			_, err := InitializeContainerChecks(context.TODO(), policy.PolicyRoot, ContainerCheckConfig{})
+			_, err := InitializeContainerChecks(context.TODO(), policy.PolicyRoot, CommonCheckConfig{})
 			Expect(err).ToNot(HaveOccurred())
 		})
 		It("should properly return checks for the konflux policy", func() {
-			_, err := InitializeContainerChecks(context.TODO(), policy.PolicyKonflux, ContainerCheckConfig{})
+			_, err := InitializeContainerChecks(context.TODO(), policy.PolicyKonflux, CommonCheckConfig{})
 			Expect(err).ToNot(HaveOccurred())
 		})
 		It("should throw an error if the policy is unknown", func() {
-			_, err := InitializeContainerChecks(context.TODO(), policy.Policy("foo"), ContainerCheckConfig{})
+			_, err := InitializeContainerChecks(context.TODO(), policy.Policy("foo"), CommonCheckConfig{})
 			Expect(err).To(HaveOccurred())
 		})
 	})

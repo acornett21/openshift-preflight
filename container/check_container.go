@@ -96,7 +96,7 @@ func (c *containerCheck) resolve(ctx context.Context) error {
 		c.policy = policy.PolicyKonflux
 	}
 
-	newChecks, err := engine.InitializeContainerChecks(ctx, c.policy, engine.ContainerCheckConfig{
+	newChecks, err := engine.InitializeContainerChecks(ctx, c.policy, engine.CommonCheckConfig{
 		DockerConfig:           c.dockerconfigjson,
 		PyxisAPIToken:          c.pyxisToken,
 		CertificationProjectID: c.certificationProjectID,

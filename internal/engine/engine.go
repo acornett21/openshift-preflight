@@ -751,13 +751,13 @@ func InitializeOperatorChecks(ctx context.Context, p policy.Policy, cfg Operator
 	return nil, fmt.Errorf("provided operator policy %s is unknown", p)
 }
 
-// ContainerCheckConfig contains configuration relevant to an individual check's execution.
-type ContainerCheckConfig struct {
+// CommonCheckConfig contains configuration relevant to an individual check's execution.
+type CommonCheckConfig struct {
 	DockerConfig, PyxisAPIToken, CertificationProjectID, PyxisHost string
 }
 
 // InitializeContainerChecks returns the appropriate checks for policy p given cfg.
-func InitializeContainerChecks(ctx context.Context, p policy.Policy, cfg ContainerCheckConfig) ([]check.Check, error) {
+func InitializeContainerChecks(ctx context.Context, p policy.Policy, cfg CommonCheckConfig) ([]check.Check, error) {
 	switch p {
 	case policy.PolicyContainer:
 		return []check.Check{
@@ -831,6 +831,31 @@ func InitializeContainerChecks(ctx context.Context, p policy.Policy, cfg Contain
 	return nil, fmt.Errorf("provided container policy %s is unknown", p)
 }
 
+func InitializeMCPChecks(ctx context.Context, p policy.Policy, cfg CommonCheckConfig) ([]check.Check, error) {
+	switch p {
+	case policy.PolicyMCP:
+		return []check.Check{
+			&containerpol.HasLicenseCheck{},
+			containerpol.NewHasUniqueTagCheck(cfg.DockerConfig),
+			&containerpol.MaxLayersCheck{},
+			&containerpol.HasNoProhibitedPackagesCheck{},
+			&containerpol.HasRequiredLabelsCheck{},
+			&containerpol.HasNoProhibitedLabelsCheck{},
+			&containerpol.RunAsNonRootCheck{},
+			&containerpol.HasModifiedFilesCheck{},
+			containerpol.NewBasedOnUbiCheck(pyxis.NewPyxisClient(
+				cfg.PyxisHost,
+				cfg.PyxisAPIToken,
+				cfg.CertificationProjectID,
+				&http.Client{Timeout: 60 * time.Second})),
+			&containerpol.HasProhibitedContainerName{},
+		}, nil
+	}
+
+	return nil, fmt.Errorf("provided mcp policy %s is unknown", p)
+
+}
+
 // makeCheckList returns a list of check names.
 func makeCheckList(checks []check.Check) []string {
 	checkNames := make([]string, len(checks))
@@ -847,9 +872,11 @@ func checkNamesFor(ctx context.Context, p policy.Policy) []string {
 	var c []check.Check
 	switch p {
 	case policy.PolicyContainer, policy.PolicyRoot, policy.PolicyScratchNonRoot, policy.PolicyScratchRoot, policy.PolicyKonflux:
-		c, _ = InitializeContainerChecks(ctx, p, ContainerCheckConfig{})
+		c, _ = InitializeContainerChecks(ctx, p, CommonCheckConfig{})
 	case policy.PolicyOperator:
 		c, _ = InitializeOperatorChecks(ctx, p, OperatorCheckConfig{})
+	case policy.PolicyMCP:
+		c, _ = InitializeMCPChecks(ctx, p, CommonCheckConfig{})
 	default:
 		return []string{}
 	}
@@ -865,6 +892,11 @@ func OperatorPolicy(ctx context.Context) []string {
 // ContainerPolicy returns the names of checks in the container policy.
 func ContainerPolicy(ctx context.Context) []string {
 	return checkNamesFor(ctx, policy.PolicyContainer)
+}
+
+// MCPPolicy returns the names of checks in the MCP policy.
+func MCPPolicy(ctx context.Context) []string {
+	return checkNamesFor(ctx, policy.PolicyMCP)
 }
 
 // ScratchNonRootContainerPolicy returns the names of checks in the
