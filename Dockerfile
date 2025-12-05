@@ -16,7 +16,15 @@ USER root
 # Build the preflight binary
 COPY . /go/src/preflight
 WORKDIR /go/src/preflight
-RUN make build RELEASE_TAG=${release_tag}
+
+# Set architecture-specific go environment variables before building,
+# This is needed, since UBI overwrites go's defaults, setting back to go's defaults for maximium compatability.
+RUN case "${ARCH}" in \
+      amd64) export GOAMD64=v1 ;; \
+      arm64) export GOARM64=v8.0 ;; \
+      ppc64le) export GOPPC64=power8 ;; \
+    esac && \
+    make build RELEASE_TAG=${release_tag}
 
 # ubi10:latest
 FROM registry.access.redhat.com/ubi10/ubi:latest
