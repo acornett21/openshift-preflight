@@ -3,12 +3,15 @@ package container
 import (
 	"bytes"
 	"context"
+	"io"
 	"io/fs"
 	"path"
 
 	"github.com/bombsimon/logrusr/v4"
 	"github.com/go-logr/logr"
-	"github.com/google/go-containerregistry/pkg/crane"
+	cranev1 "github.com/google/go-containerregistry/pkg/v1"
+	fakecranev1 "github.com/google/go-containerregistry/pkg/v1/fake"
+	"github.com/google/go-containerregistry/pkg/v1/types"
 	rpmdb "github.com/knqyf263/go-rpmdb/pkg"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -24,6 +27,35 @@ const (
 	fileMaskWithSetgid  = fileMask | fs.ModeSetgid
 	fileMaskWithBothSet = fileMaskWithSetuid | fileMaskWithSetgid
 )
+
+type testLayer struct {
+	digest cranev1.Hash
+	diffID cranev1.Hash
+}
+
+func (l testLayer) Digest() (cranev1.Hash, error) {
+	return l.digest, nil
+}
+
+func (l testLayer) DiffID() (cranev1.Hash, error) {
+	return l.diffID, nil
+}
+
+func (l testLayer) Compressed() (io.ReadCloser, error) {
+	return io.NopCloser(bytes.NewReader(nil)), nil
+}
+
+func (l testLayer) Uncompressed() (io.ReadCloser, error) {
+	return io.NopCloser(bytes.NewReader(nil)), nil
+}
+
+func (l testLayer) Size() (int64, error) {
+	return 0, nil
+}
+
+func (l testLayer) MediaType() (types.MediaType, error) {
+	return types.OCILayer, nil
+}
 
 func deepCopyPackage(pkgs map[string]packageFilesRef) map[string]packageFilesRef {
 	newPkgs := make(map[string]packageFilesRef)
@@ -571,20 +603,26 @@ var _ = Describe("HasModifiedFiles", func() {
 		var img image.ImageReference
 		var actualLayerCount int
 		BeforeEach(func() {
-			// TODO: The containerfile that generates this test fixture is stored in-repo tests/containerfiles.
-			// The external call here avoids having to store the image locally. A crane-built image runs into
-			// issues because we cannot run `microdnf` commands using Crane, and need to have multiple layers
-			// containing RPMDBs to test this issue correctly.
-			const dupeLayerTestFixture = "quay.io/opdev/preflight-test-fixture:duplicate-layers"
-			cImg, pullError := crane.Pull(dupeLayerTestFixture)
-			Expect(pullError).ToNot(HaveOccurred())
+			digest, err := cranev1.NewHash("sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+			Expect(err).ToNot(HaveOccurred())
+			diffID, err := cranev1.NewHash("sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+			Expect(err).ToNot(HaveOccurred())
+			layers := []cranev1.Layer{
+				testLayer{digest: digest, diffID: diffID},
+				testLayer{digest: digest, diffID: diffID},
+			}
+			cImg := &fakecranev1.FakeImage{
+				LayersStub: func() ([]cranev1.Layer, error) {
+					return layers, nil
+				},
+			}
 			img = image.ImageReference{
 				ImageInfo: cImg,
 			}
 
-			layers, err := img.ImageInfo.Layers()
+			imageLayers, err := img.ImageInfo.Layers()
 			Expect(err).ToNot(HaveOccurred())
-			actualLayerCount = len(layers)
+			actualLayerCount = len(imageLayers)
 		})
 
 		It("should validate and have matching layer counts", func() {

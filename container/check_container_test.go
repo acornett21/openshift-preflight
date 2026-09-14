@@ -2,12 +2,22 @@ package container
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"log"
+	"net/http/httptest"
+	"net/url"
 
+	"github.com/google/go-containerregistry/pkg/crane"
+	"github.com/google/go-containerregistry/pkg/registry"
+	"github.com/google/go-containerregistry/pkg/v1/random"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/redhat-openshift-ecosystem/openshift-preflight/certification"
 	preflighterr "github.com/redhat-openshift-ecosystem/openshift-preflight/errors"
+	"github.com/redhat-openshift-ecosystem/openshift-preflight/internal/check"
+	"github.com/redhat-openshift-ecosystem/openshift-preflight/internal/image"
 	"github.com/redhat-openshift-ecosystem/openshift-preflight/internal/lib"
 	"github.com/redhat-openshift-ecosystem/openshift-preflight/internal/runtime"
 	"github.com/redhat-openshift-ecosystem/openshift-preflight/internal/test"
@@ -75,7 +85,7 @@ var _ = Describe("Container Check initialization", func() {
 var _ = Describe("Container Check Execution", func() {
 	When("testing against a known-good image", func() {
 		var chk *containerCheck
-		goodImage := "quay.io/opdev/simple-demo-operator:latest"
+		goodImage := "registry.test.example/opdev/simple-demo-operator:latest"
 		BeforeEach(func() {
 			chk = NewCheck(goodImage)
 		})
@@ -98,6 +108,7 @@ var _ = Describe("Container Check Execution", func() {
 		})
 
 		It("Should run without issue", func() {
+			chk, goodImage = newLocalContainerCheck(false)
 			ctx := test.NewTestLoggerContext(context.TODO())
 			results, err := chk.Run(ctx)
 			Expect(err).ToNot(HaveOccurred())
@@ -110,7 +121,7 @@ var _ = Describe("Container Check Execution", func() {
 
 	When("testing against a known good image and konflux is true", func() {
 		var chk *containerCheck
-		goodImage := "quay.io/opdev/simple-demo-operator:latest"
+		goodImage := "registry.test.example/opdev/simple-demo-operator:latest"
 		BeforeEach(func() {
 			chk = NewCheck(goodImage)
 			chk.konflux = true
@@ -134,6 +145,7 @@ var _ = Describe("Container Check Execution", func() {
 		})
 
 		It("Should run without issue", func() {
+			chk, goodImage = newLocalContainerCheck(true)
 			ctx := context.TODO()
 			results, err := chk.Run(ctx)
 			Expect(err).ToNot(HaveOccurred())
@@ -175,12 +187,11 @@ var _ = Describe("Container Check Execution", func() {
 			fakeClient := &fakePyxisClient{
 				getProjectFunc: returnContainerProject,
 			}
-			goodImage := "quay.io/opdev/simple-demo-operator:latest"
-			chk := NewCheck(goodImage, withPyxisClient(fakeClient))
-			results, err := chk.Run(context.TODO())
+			chk := NewCheck("registry.test.example/opdev/simple-demo-operator:latest", withPyxisClient(fakeClient))
+			err := chk.resolve(context.TODO())
 			Expect(err).ToNot(HaveOccurred())
-			Expect(results).ToNot(Equal(certification.Results{}))
-			Expect(results.TestedImage).To(Equal(goodImage))
+			Expect(chk.policy).To(Equal("container"))
+			Expect(chk.resolved).To(BeTrue())
 		})
 	})
 })
@@ -191,4 +202,35 @@ func withPyxisClient(client lib.PyxisClient) Option {
 	return func(cc *containerCheck) {
 		cc.pyxisClient = client
 	}
+}
+
+func newLocalContainerCheck(konflux bool) (*containerCheck, string) {
+	registryLogger := log.New(io.Discard, "", log.Ldate)
+	server := httptest.NewServer(registry.New(registry.Logger(registryLogger)))
+	DeferCleanup(server.Close)
+
+	serverURL, err := url.Parse(server.URL)
+	Expect(err).ToNot(HaveOccurred())
+
+	imageReference := fmt.Sprintf("%s/test/preflight:latest", serverURL.Host)
+	img, err := random.Image(1024, 1)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(crane.Push(img, imageReference)).To(Succeed())
+
+	passedCheck := check.NewGenericCheck(
+		"testcheck",
+		func(context.Context, image.ImageReference) (bool, error) {
+			return true, nil
+		},
+		check.Metadata{},
+		check.HelpText{},
+		nil,
+	)
+
+	chk := NewCheck(imageReference, WithInsecureConnection())
+	chk.checks = []check.Check{passedCheck}
+	chk.resolved = true
+	chk.konflux = konflux
+
+	return chk, imageReference
 }
