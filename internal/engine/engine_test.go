@@ -403,6 +403,7 @@ var _ = Describe("Check Name Queries", func() {
 			"RunAsNonRoot",
 			"HasModifiedFiles",
 			"BasedOnUbi",
+			"HasSupportedRedHatBaseImage",
 			"HasProhibitedContainerName",
 		}),
 		Entry("default operator policy", OperatorPolicy, []string{
@@ -440,6 +441,7 @@ var _ = Describe("Check Name Queries", func() {
 			"HasNoProhibitedLabels",
 			"HasModifiedFiles",
 			"BasedOnUbi",
+			"HasSupportedRedHatBaseImage",
 			"HasProhibitedContainerName",
 		}),
 		Entry("konflux container policy", KonfluxContainerPolicy, []string{

@@ -107,6 +107,7 @@ When debugging failures, understand what each check validates:
 |------------|---------|-----------------|
 | **HasLicense** | Verifies license files exist in standard locations | Missing LICENSE, COPYING, or copyright files |
 | **BasedOnUbi** | Ensures container uses Red Hat Universal Base Image | Not built FROM a UBI base image |
+| **HasSupportedRedHatBaseImage** | Ensures the Red Hat UBI image is Generally Available| Not built on a Deprecated base image |
 | **HasRequiredLabels** | Checks for required container labels | Missing name, vendor, version, release, summary, or description labels |
 | **HasUniqueTag** | Validates tag is not 'latest' | Using :latest tag |
 | **RunsAsNonroot** | Ensures container doesn't run as root | USER directive missing or set to root/UID 0 |

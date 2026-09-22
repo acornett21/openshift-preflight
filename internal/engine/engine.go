@@ -698,6 +698,11 @@ func InitializeContainerChecks(ctx context.Context, p policy.Policy, cfg Contain
 				cfg.PyxisAPIToken,
 				cfg.CertificationProjectID,
 				&http.Client{Timeout: 60 * time.Second})),
+			containerpol.NewHasSupportedRedHatBaseImageCheck(pyxis.NewPyxisClient(
+				cfg.PyxisHost,
+				cfg.PyxisAPIToken,
+				cfg.CertificationProjectID,
+				&http.Client{Timeout: 60 * time.Second}), time.Now),
 			&containerpol.HasProhibitedContainerName{},
 		}, nil
 	case policy.PolicyRoot:
@@ -714,6 +719,11 @@ func InitializeContainerChecks(ctx context.Context, p policy.Policy, cfg Contain
 				cfg.PyxisAPIToken,
 				cfg.CertificationProjectID,
 				&http.Client{Timeout: 60 * time.Second})),
+			containerpol.NewHasSupportedRedHatBaseImageCheck(pyxis.NewPyxisClient(
+				cfg.PyxisHost,
+				cfg.PyxisAPIToken,
+				cfg.CertificationProjectID,
+				&http.Client{Timeout: 60 * time.Second}), time.Now),
 			&containerpol.HasProhibitedContainerName{},
 		}, nil
 	case policy.PolicyScratchNonRoot:
