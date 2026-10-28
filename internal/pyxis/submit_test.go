@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 
@@ -17,6 +18,12 @@ var _ = Describe("Pyxis Submit", func() {
 	var pyxisClient *pyxisClient
 	var certInput CertificationInput
 	var capturedArtifacts []Artifact
+	// capturedCalls records "METHOD PATH" for every request, in order, so tests can
+	// assert on the sequence of API calls made during a submission.
+	var capturedCalls []string
+	// capturedImagePosts records the image payloads POSTed to /api/v1/images, so tests
+	// can assert on what createImage actually sent.
+	var capturedImagePosts []CertImage
 	mux := http.NewServeMux()
 
 	// These go from most explicit to least explicit. They will be check that way by the ServeMux.
@@ -26,20 +33,32 @@ var _ = Describe("Pyxis Submit", func() {
 	mux.HandleFunc("/api/v1/projects/certification/id/my-image-project-id/images", pyxisImageHandler(ctx))
 	mux.HandleFunc("/api/v1/projects/certification/id/", pyxisProjectHandler(ctx))
 	mux.HandleFunc("/api/v1/images/id/updateImage", pyxisImageHandler(ctx))
+	mux.HandleFunc("/api/v1/images/id/blah", pyxisImageHandler(ctx))
 	mux.HandleFunc("/api/v1/images/id/blah/", pyxisRPMManifestHandler(ctx))
 	mux.HandleFunc("/api/v1/images/id/updateImage/", pyxisImageHandler(ctx))
 	mux.HandleFunc("/api/v1/images", pyxisImageHandler(ctx))
 
-	// Wraps mux to record every artifact payload POSTed during a test, so tests can assert
-	// on what was actually sent to createArtifact instead of only the overall submission result.
-	artifactCapturingHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/projects/certification/id/my-awesome-project-id/artifacts" {
-			body, err := io.ReadAll(r.Body)
-			if err == nil {
+	// Wraps mux to record every request made during a test, so tests can assert
+	// on what was actually sent to Pyxis instead of only the overall submission result.
+	capturingHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedCalls = append(capturedCalls, fmt.Sprintf("%s %s", r.Method, r.URL.Path))
+
+		if r.Body != nil {
+			if body, err := io.ReadAll(r.Body); err == nil {
 				r.Body = io.NopCloser(bytes.NewReader(body))
-				var incoming Artifact
-				if json.Unmarshal(body, &incoming) == nil {
-					capturedArtifacts = append(capturedArtifacts, incoming)
+
+				if r.Method == http.MethodPost && r.URL.Path == "/api/v1/images" {
+					var incoming CertImage
+					if json.Unmarshal(body, &incoming) == nil {
+						capturedImagePosts = append(capturedImagePosts, incoming)
+					}
+				}
+
+				if r.Method == http.MethodPost && r.URL.Path == "/api/v1/projects/certification/id/my-awesome-project-id/artifacts" {
+					var incoming Artifact
+					if json.Unmarshal(body, &incoming) == nil {
+						capturedArtifacts = append(capturedArtifacts, incoming)
+					}
 				}
 			}
 		}
@@ -48,11 +67,13 @@ var _ = Describe("Pyxis Submit", func() {
 
 	BeforeEach(func() {
 		capturedArtifacts = nil
+		capturedCalls = nil
+		capturedImagePosts = nil
 		pyxisClient = NewPyxisClient(
 			"my.pyxis.host/api",
 			"my-spiffy-api-token",
 			"my-awesome-project-id",
-			&http.Client{Transport: localRoundTripper{handler: artifactCapturingHandler}},
+			&http.Client{Transport: localRoundTripper{handler: capturingHandler}},
 		)
 		certInput = CertificationInput{
 			CertProject: &CertProject{CertificationStatus: "Started"},
@@ -232,15 +253,15 @@ var _ = Describe("Pyxis Submit", func() {
 			})
 		})
 
-		Context("createImage 409 Conflict, getImage 200, and updateImage 200", func() {
+		Context("createImage 409 Conflict, getImage 200, and deferred updateImage 200", func() {
 			BeforeEach(func() {
 				pyxisClient.APIToken = "my-update-image-success-api-token"
 				pyxisClient.ProjectID = "my-image-project-id"
 				certInput.CertImage.Certified = true
 			})
 			Context("when a project is submitted", func() {
-				Context("and an update token is sent to getImage and createImage is in conflict", func() {
-					It("should call updateImage and certified flag should be updated", func() {
+				Context("and the image already exists but is not yet certified", func() {
+					It("should finalize the certified flag via updateImage after all data is submitted", func() {
 						certResults, err := pyxisClient.SubmitResults(ctx, &certInput)
 						Expect(err).ToNot(HaveOccurred())
 						Expect(certResults).ToNot(BeNil())
@@ -253,19 +274,107 @@ var _ = Describe("Pyxis Submit", func() {
 			})
 		})
 
-		Context("createImage 409 Conflict, getImage 200, and updateImage 500", func() {
+		Context("createImage 409 Conflict, getImage 200, and deferred updateImage 500", func() {
 			BeforeEach(func() {
 				pyxisClient.APIToken = "my-update-image-failure-api-token"
 				pyxisClient.ProjectID = "my-image-project-id"
 				certInput.CertImage.Certified = true
 			})
 			Context("when a project is submitted", func() {
-				Context("and an update token is sent to getImage and createImage is in conflict", func() {
-					It("should call updateImage and error", func() {
+				Context("and the deferred certification update fails", func() {
+					It("should error on finalization", func() {
 						certResults, err := pyxisClient.SubmitResults(ctx, &certInput)
 						Expect(err).To(HaveOccurred())
 						Expect(certResults).To(BeNil())
 					})
+				})
+			})
+		})
+
+		Context("deferred certification on a fresh image", func() {
+			BeforeEach(func() {
+				certInput.CertImage.Certified = true
+			})
+			Context("when a project is submitted", func() {
+				It("should create the image as not certified and certify it last", func() {
+					certResults, err := pyxisClient.SubmitResults(ctx, &certInput)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(certResults).ToNot(BeNil())
+
+					Expect(capturedImagePosts).To(HaveLen(1), "createImage should be called exactly once")
+					Expect(capturedImagePosts[0].Certified).To(BeFalse(), "the initial image POST must not carry the certified flag")
+
+					Expect(certResults.CertImage.Certified).To(BeTrue(), "the final image should be certified")
+
+					imagePatchIndex := indexOfCall(capturedCalls, "PATCH /api/v1/images/id/blah")
+					resultsPatchIndex := indexOfCall(capturedCalls, "PATCH /api/v1/projects/certification/test-results/id/54321")
+					Expect(imagePatchIndex).To(BeNumerically(">", -1), "updateImage should have been called")
+					Expect(resultsPatchIndex).To(BeNumerically(">", -1), "updateTestResults should have been called")
+					Expect(imagePatchIndex).To(BeNumerically(">", resultsPatchIndex),
+						"the certified flag must be applied after the test results are linked to the image")
+				})
+			})
+
+			Context("when the final updateImage fails", func() {
+				JustBeforeEach(func() {
+					pyxisClient.APIToken = "my-finalize-failure-api-token"
+					pyxisClient.ProjectID = "my-image-project-id"
+				})
+				It("should error with guidance to re-run when the image was not previously certified", func() {
+					certResults, err := pyxisClient.SubmitResults(ctx, &certInput)
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring("could not update image certification status"))
+					Expect(err.Error()).To(ContainSubstring("re-running preflight check container with --submit will complete the submission"))
+					Expect(certResults).To(BeNil())
+				})
+			})
+		})
+
+		Context("deferred certification when checks did not pass", func() {
+			JustBeforeEach(func() {
+				pyxisClient.APIToken = "my-finalize-failure-api-token"
+				pyxisClient.ProjectID = "my-image-project-id"
+			})
+			Context("when a project is submitted", func() {
+				It("should not call updateImage at all", func() {
+					certResults, err := pyxisClient.SubmitResults(ctx, &certInput)
+					Expect(err).ToNot(HaveOccurred(), "no PATCH to the image should be attempted when the image is not certified")
+					Expect(certResults).ToNot(BeNil())
+					Expect(certResults.CertImage.Certified).To(BeFalse())
+				})
+			})
+		})
+
+		Context("createImage 409 Conflict for an already published image", func() {
+			BeforeEach(func() {
+				pyxisClient.APIToken = "my-published-image-api-token"
+				pyxisClient.ProjectID = "my-image-project-id"
+				certInput.CertImage.Certified = true
+			})
+			Context("when a project is submitted", func() {
+				It("should surface the pyxis error with guidance that no action is needed", func() {
+					certResults, err := pyxisClient.SubmitResults(ctx, &certInput)
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring("Cannot update a published image"))
+					Expect(err.Error()).To(ContainSubstring("already certified by a previous submission, so no further action is needed"))
+					Expect(certResults).To(BeNil())
+				})
+			})
+		})
+
+		Context("createImage 409 Conflict and a transient failure updating an already certified image", func() {
+			BeforeEach(func() {
+				pyxisClient.APIToken = "my-certified-image-500-api-token"
+				pyxisClient.ProjectID = "my-image-project-id"
+				certInput.CertImage.Certified = true
+			})
+			Context("when a project is submitted", func() {
+				It("should still advise no action is needed since the image was already certified", func() {
+					certResults, err := pyxisClient.SubmitResults(ctx, &certInput)
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring("status code: 500"))
+					Expect(err.Error()).To(ContainSubstring("already certified by a previous submission, so no further action is needed"))
+					Expect(certResults).To(BeNil())
 				})
 			})
 		})
@@ -412,3 +521,14 @@ var _ = Describe("Pyxis Submit", func() {
 		})
 	})
 })
+
+// indexOfCall returns the index of the first matching "METHOD PATH" entry in
+// calls, or -1 if the call was never made.
+func indexOfCall(calls []string, call string) int {
+	for i, c := range calls {
+		if c == call {
+			return i
+		}
+	}
+	return -1
+}

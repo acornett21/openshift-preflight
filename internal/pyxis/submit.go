@@ -11,7 +11,14 @@ import (
 var defaultRegistryAlias = "docker.io"
 
 // SubmitResults takes certInput and sends requests to Pyxis to create or update entries
-// based on certInput.
+// based on certInput. Note that certInput may be mutated during submission (e.g. the
+// image's certified flag and repository registry normalization); callers should not
+// reuse the input afterwards.
+//
+// The image is created without its certification status, and that status is applied
+// via updateImage only after the RPM manifest, artifacts, and test results have been
+// submitted. Pyxis' auto-publish reacts to the certified flag, so deferring it prevents
+// a later failure in this flow from publishing an image with incomplete data.
 func (p *pyxisClient) SubmitResults(ctx context.Context, certInput *CertificationInput) (*CertificationResults, error) {
 	var err error
 
@@ -59,8 +66,11 @@ func (p *pyxisClient) SubmitResults(ctx context.Context, certInput *Certificatio
 	// in the event that it exists. createImage will wipe it otherwise.
 	originalImageDigest := certImage.DockerImageDigest
 
-	// store the certification status for this execution, in case a previous execution failed and we need to patch the image
-	certified := certInput.CertImage.Certified
+	// Pyxis' auto-publish reacts to the certified flag, so keep it out of the
+	// initial image creation and apply it only after all supporting data is
+	// submitted (see the updateImage call at the end of this function).
+	certified := certImage.Certified
+	certImage.Certified = false
 
 	// normalizing index.docker.io to docker.io for the certImage
 	certImage.Repositories[0].Registry = normalizeDockerRegistry(certImage.Repositories[0].Registry)
@@ -74,19 +84,6 @@ func (p *pyxisClient) SubmitResults(ctx context.Context, certInput *Certificatio
 		certImage, err = p.getImage(ctx, originalImageDigest)
 		if err != nil {
 			return nil, fmt.Errorf("could not get image: %v", err)
-		}
-
-		// checking to see if the original value is certified and the previous value is not certified,
-		// this would indicate that a partner is running preflight again, and during the first run there was a timeout/error
-		// in a check that interacts with pyxis and we need to correct the certified value for the image
-		if certified && !certImage.Certified {
-			// change the certified value to `true`
-			certImage.Certified = certified
-
-			certImage, err = p.updateImage(ctx, certImage)
-			if err != nil {
-				return nil, fmt.Errorf("could not update image: %v", err)
-			}
 		}
 	}
 
@@ -121,6 +118,28 @@ func (p *pyxisClient) SubmitResults(ctx context.Context, certInput *Certificatio
 	testResults, err = p.updateTestResults(ctx, testResults)
 	if err != nil {
 		return nil, fmt.Errorf("could not update test results: %v", err)
+	}
+
+	// All supporting data is now in place, so apply the certification status.
+	// This is the write that can trigger auto-publish in Pyxis, hence last.
+	// Intentionally unconditional: if the image is already published, the Pyxis
+	// error is surfaced to the user rather than silently swallowed.
+	if certified {
+		// capture the image's certification state before this submission applies
+		// the flag, so failure guidance reflects whether the flag was ever applied.
+		wasCertified := certImage.Certified
+		certImage.Certified = true
+		certImage, err = p.updateImage(ctx, certImage)
+		if err != nil {
+			if wasCertified {
+				return nil, fmt.Errorf("could not update image certification status: %v. "+
+					"All test results and image data were submitted successfully; this image was "+
+					"already certified by a previous submission, so no further action is needed", err)
+			}
+			return nil, fmt.Errorf("could not update image certification status: %v. "+
+				"All test results and image data were submitted successfully; re-running "+
+				"preflight check container with --submit will complete the submission", err)
+		}
 	}
 
 	// Return the results with up-to-date information.

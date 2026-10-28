@@ -99,6 +99,21 @@ func pyxisImageHandler(ctx context.Context) http.HandlerFunc {
 			mustWrite(response, `{"_id":"updateImage","certified":true,"deleted":false,"image_id":"123456789abc"}`)
 		case request.Method == http.MethodPatch && request.Header["X-Api-Key"][0] == "my-update-image-failure-api-token":
 			response.WriteHeader(http.StatusInternalServerError)
+		case request.Method == http.MethodPatch && request.Header["X-Api-Key"][0] == "my-finalize-failure-api-token":
+			response.WriteHeader(http.StatusInternalServerError)
+		case request.Method == http.MethodPatch && request.Header["X-Api-Key"][0] == "my-published-image-api-token":
+			response.WriteHeader(http.StatusBadRequest)
+			mustWrite(response, `{"detail":"Cannot update a published image"}`)
+		case request.Method == http.MethodPost && request.Header["X-Api-Key"][0] == "my-published-image-api-token":
+			response.WriteHeader(http.StatusConflict)
+		case request.Method == http.MethodGet && request.Header["X-Api-Key"][0] == "my-published-image-api-token":
+			mustWrite(response, `{"data":[{"_id":"blah","certified":true,"deleted":false,"image_id":"123456789abc"}]}`)
+		case request.Method == http.MethodPatch && request.Header["X-Api-Key"][0] == "my-certified-image-500-api-token":
+			response.WriteHeader(http.StatusInternalServerError)
+		case request.Method == http.MethodPost && request.Header["X-Api-Key"][0] == "my-certified-image-500-api-token":
+			response.WriteHeader(http.StatusConflict)
+		case request.Method == http.MethodGet && request.Header["X-Api-Key"][0] == "my-certified-image-500-api-token":
+			mustWrite(response, `{"data":[{"_id":"blah","certified":true,"deleted":false,"image_id":"123456789abc"}]}`)
 		case request.Method == http.MethodPost && request.Header["X-Api-Key"][0] == "my-image-409-api-token":
 			response.WriteHeader(http.StatusConflict)
 		case request.Method == http.MethodPost && request.Header["X-Api-Key"][0] == "my-bad-401-image-api-token":
@@ -114,6 +129,14 @@ func pyxisImageHandler(ctx context.Context) http.HandlerFunc {
 			response.WriteHeader(http.StatusInternalServerError)
 		case request.Header["X-Api-Key"][0] == "my-index-docker-io-project-api-token":
 			mustWrite(response, `{"_id": "blah", "architecture": "amd64", "object_type": "containerImage", "repositories": [ {"published": false, "registry": "docker.io", "repository": "my/repo", "tags": [{"name": "docker_io_v3"}]}]}`)
+		case request.Method == http.MethodPatch:
+			// echo the patch payload back so callers can decode the updated image
+			body, err := io.ReadAll(request.Body)
+			if err != nil {
+				response.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			mustWrite(response, string(body))
 		case request.Method == http.MethodPost:
 			mustWrite(response, responseString)
 		default:
